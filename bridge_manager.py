@@ -22,7 +22,7 @@ class BridgeManager:
         return self.active_ws is not None and not self.active_ws.closed
 
     async def handle_ws(self, request: web.Request) -> web.WebSocketResponse:
-        ws = web.WebSocketResponse(heartbeat=20.0, max_msg_size=50 * 1024 * 1024)
+        ws = web.WebSocketResponse(heartbeat=45.0, max_msg_size=50 * 1024 * 1024)
         await ws.prepare(request)
 
         authenticated = False
@@ -51,7 +51,7 @@ class BridgeManager:
                         
                         authenticated = True
                         # If an older socket exists, close it
-                        if self.active_ws and not self.active_ws.closed:
+                        if self.active_ws and self.active_ws != ws and not self.active_ws.closed:
                             try:
                                 await self.active_ws.close()
                             except Exception:
@@ -96,6 +96,13 @@ class BridgeManager:
 
     async def execute_tool_on_pc(self, tool_name: str, tool_args: Dict[str, Any], timeout: float = 60.0) -> Dict[str, Any]:
         """Send a tool execution command over WebSocket to the local PC and await response."""
+        if not self.is_connected:
+            # Give a brief 3-second grace period in case the client is auto-reconnecting
+            for _ in range(6):
+                await asyncio.sleep(0.5)
+                if self.is_connected:
+                    break
+
         if not self.is_connected:
             return {
                 "status": "offline",

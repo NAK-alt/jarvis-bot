@@ -95,18 +95,28 @@ def execute_local_tool(tool_name: str, args: dict) -> dict:
         logger.error(f"Error executing {tool_name}: {e}")
         return {"status": "error", "result": f"Execution error: {str(e)}"}
 
+async def _send_keepalive_pings(ws: aiohttp.ClientWebSocketResponse):
+    """Send periodic application-level pings to keep cloud proxies and Railway WebSocket alive."""
+    try:
+        while not ws.closed:
+            await asyncio.sleep(15)
+            if not ws.closed:
+                await ws.send_json({"type": "ping"})
+    except Exception:
+        pass
+
 async def run_client():
+    """Main background loop maintaining persistent WebSocket connection to Railway."""
     railway_url = config.RAILWAY_URL
     if not railway_url:
-        # Default local URL if testing locally
-        railway_url = f"ws://localhost:{config.PORT}/ws"
-        logger.warning(f"RAILWAY_URL not configured in .env. Defaulting to: {railway_url}")
+        logger.error("RAILWAY_URL is not set in environment or .env! Cannot connect.")
+        return
 
     hostname = platform.node() or socket.gethostname() or "Windows PC"
     logger.info(f"⚡ J.A.R.V.I.S. PC Bridge Client starting for host: {hostname}")
     logger.info(f"Target Server: {railway_url}")
 
-    reconnect_delay = 3
+    reconnect_delay = 1
 
     while True:
         try:
@@ -114,7 +124,7 @@ async def run_client():
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(
                     railway_url,
-                    heartbeat=20.0,
+                    heartbeat=45.0,
                     max_msg_size=50 * 1024 * 1024
                 ) as ws:
                     # 1. Send Authentication Handshake
@@ -128,44 +138,48 @@ async def run_client():
                     await ws.send_json(auth_payload)
                     logger.info("Sent auth handshake to server...")
 
-                    reconnect_delay = 3  # Reset delay on successful connect
+                    reconnect_delay = 1  # Reset delay on successful connect
+                    ping_task = asyncio.create_task(_send_keepalive_pings(ws))
 
-                    # 2. Process incoming server requests
-                    async for msg in ws:
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            try:
-                                data = json.loads(msg.data)
-                            except Exception:
-                                continue
+                    try:
+                        # 2. Process incoming server requests
+                        async for msg in ws:
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                try:
+                                    data = json.loads(msg.data)
+                                except Exception:
+                                    continue
 
-                            msg_type = data.get("type")
+                                msg_type = data.get("type")
 
-                            if msg_type == "auth_ok":
-                                logger.info("✅ Authenticated & Connected to J.A.R.V.I.S. Cloud 24/7 Server!")
+                                if msg_type == "auth_ok":
+                                    logger.info("✅ Authenticated & Connected to J.A.R.V.I.S. Cloud 24/7 Server!")
 
-                            elif msg_type == "auth_fail":
-                                logger.error(f"❌ Server rejected authentication: {data.get('reason')}")
-                                logger.error("Please ensure BRIDGE_SECRET_KEY matches on both PC and Railway.")
-                                await asyncio.sleep(10)
+                                elif msg_type == "auth_fail":
+                                    logger.error(f"❌ Server rejected authentication: {data.get('reason')}")
+                                    logger.error("Please ensure BRIDGE_SECRET_KEY matches on both PC and Railway.")
+                                    await asyncio.sleep(10)
+                                    break
+
+                                elif msg_type == "execute_tool":
+                                    req_id = data.get("id")
+                                    tool_name = data.get("tool_name")
+                                    args = data.get("args", {})
+
+                                    logger.info(f"Executing cloud tool: {tool_name}")
+                                    # Execute in threadpool so blocking Windows APIs do not freeze the socket
+                                    tool_response = await asyncio.to_thread(execute_local_tool, tool_name, args)
+                                    tool_response["type"] = "tool_response"
+                                    tool_response["id"] = req_id
+
+                                    await ws.send_json(tool_response)
+                                    logger.info(f"Completed tool: {tool_name}")
+
+                            elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                                logger.warning("Connection closed by server.")
                                 break
-
-                            elif msg_type == "execute_tool":
-                                req_id = data.get("id")
-                                tool_name = data.get("tool_name")
-                                args = data.get("args", {})
-
-                                logger.info(f"Executing cloud tool: {tool_name}")
-                                # Execute in threadpool so blocking Windows APIs do not freeze the socket
-                                tool_response = await asyncio.to_thread(execute_local_tool, tool_name, args)
-                                tool_response["type"] = "tool_response"
-                                tool_response["id"] = req_id
-
-                                await ws.send_json(tool_response)
-                                logger.info(f"Completed tool: {tool_name}")
-
-                        elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                            logger.warning("Connection closed by server.")
-                            break
+                    finally:
+                        ping_task.cancel()
 
         except aiohttp.ClientConnectorError as e:
             logger.warning(f"Cloud server not reachable ({e}). Retrying in {reconnect_delay}s...")
@@ -173,7 +187,7 @@ async def run_client():
             logger.error(f"Bridge connection error: {e}. Retrying in {reconnect_delay}s...")
 
         await asyncio.sleep(reconnect_delay)
-        reconnect_delay = min(reconnect_delay * 1.5, 30)
+        reconnect_delay = min(reconnect_delay * 1.3, 10)
 
 def acquire_single_instance_lock():
     """Ensure only one instance of the PC bridge runs at a time."""

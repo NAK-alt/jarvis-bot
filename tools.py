@@ -95,13 +95,31 @@ def open_application_or_url(target: str) -> str:
     """Open an application, website URL, or file on the Windows PC.
     
     Args:
-        target: The name of the app (e.g. 'spotify', 'chrome', 'notepad', 'calc', 'code') or full path or URL ('https://youtube.com').
+        target: The name of the app (e.g. 'spotify', 'chrome', 'notepad', 'calc', 'code', 'antigravity', 'terminal') or full path or URL ('https://youtube.com').
     """
     try:
+        t_clean = target.strip().lower()
         if target.startswith("http://") or target.startswith("https://"):
             os.system(f'start "" "{target}"')
             return f"Opened URL: {target}"
+
+        # Special app aliases
+        if t_clean in ("antigravity", "agy", "terminal antigravity", "antigravity terminal", "terminal agy"):
+            run_powershell("Start-Process wt.exe -ArgumentList 'agy' -ErrorAction SilentlyContinue; if (!$?) { Start-Process powershell.exe -ArgumentList '-NoExit', '-Command', 'agy' }")
+            return "Launched Antigravity CLI terminal, sir."
         
+        if t_clean in ("terminal", "wt", "windows terminal"):
+            run_powershell("Start-Process wt.exe -ErrorAction SilentlyContinue; if (!$?) { Start-Process powershell.exe }")
+            return "Opened Windows Terminal, sir."
+
+        if t_clean in ("powershell", "posh"):
+            run_powershell("Start-Process powershell.exe")
+            return "Opened PowerShell, sir."
+
+        if t_clean in ("cmd", "command prompt"):
+            run_powershell("Start-Process cmd.exe")
+            return "Opened Command Prompt, sir."
+
         cmd = f'Start-Process "{target}"'
         res = run_powershell(cmd)
         if "Error" not in res:
