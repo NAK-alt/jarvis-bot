@@ -37,6 +37,7 @@ class CloudJarvisAgent:
         self.bridge = bridge_manager
         self.loop = loop or asyncio.get_event_loop()
         self.chat_sessions: Dict[str, Any] = {}
+        self.disabled_models_until: Dict[str, float] = {}
         
         # State tracked per request
         self.last_screenshot_bytes: Optional[bytes] = None
@@ -228,10 +229,15 @@ class CloudJarvisAgent:
                 "error": None
             }
 
-        models_to_try = [config.PRIMARY_MODEL] + [m for m in config.FALLBACK_MODELS if m != config.PRIMARY_MODEL]
+        # Filter models not in cooldown
+        now = time.time()
+        active_models = [m for m in models_to_try if self.disabled_models_until.get(m, 0) < now]
+        if not active_models:
+            active_models = models_to_try  # If all in cooldown, try all anyway
+
         last_error = None
 
-        for model_name in models_to_try:
+        for model_name in active_models:
             try:
                 chat_key = f"{user_id}_{model_name}"
                 if chat_key not in self.chat_sessions:
@@ -249,12 +255,18 @@ class CloudJarvisAgent:
                 }
 
             except Exception as e:
-                logger.warning(f"Model '{model_name}' encountered error: {e}. Trying fallback...")
+                err_str = str(e)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    logger.warning(f"Model '{model_name}' hit 429 quota limit. Cooling down for 10 minutes...")
+                    self.disabled_models_until[model_name] = now + 600
+                else:
+                    logger.warning(f"Model '{model_name}' encountered error: {e}. Trying fallback...")
+                
                 last_error = e
                 chat_key = f"{user_id}_{model_name}"
                 if chat_key in self.chat_sessions:
                     del self.chat_sessions[chat_key]
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.3)
 
         return {
             "text": f"My apologies sir, I encountered an issue: {str(last_error)}",
