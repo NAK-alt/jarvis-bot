@@ -353,12 +353,155 @@ def send_file_to_telegram(file_path: str) -> str:
     PENDING_FILES_TO_SEND.append(resolved_path)
     return f"File '{os.path.basename(resolved_path)}' queued to be sent to Telegram."
 
+def get_screen_resolution() -> str:
+    """Get the screen width and height in pixels."""
+    try:
+        width, height = pyautogui.size()
+        pos_x, pos_y = pyautogui.position()
+        return f"Screen Resolution: {width}x{height} pixels. Current Mouse Position: ({pos_x}, {pos_y})."
+    except Exception as e:
+        return f"Error getting screen size: {str(e)}"
+
+def mouse_move_and_click(x: int, y: int, button: str = "left", clicks: int = 1) -> str:
+    """Move the mouse cursor to specific screen coordinates (x, y) and perform a click.
+    
+    Args:
+        x: Horizontal pixel coordinate (0 to screen width).
+        y: Vertical pixel coordinate (0 to screen height).
+        button: Mouse button ('left', 'right', 'middle'). Default 'left'.
+        clicks: Number of clicks (1 for single click, 2 for double click).
+    """
+    try:
+        width, height = pyautogui.size()
+        target_x = max(0, min(x, width - 1))
+        target_y = max(0, min(y, height - 1))
+        
+        # Smoothly move to coordinates
+        pyautogui.moveTo(target_x, target_y, duration=0.25)
+        pyautogui.click(target_x, target_y, clicks=clicks, button=button.lower())
+        return f"Mouse moved to ({target_x}, {target_y}) and performed {clicks} {button}-click(s)."
+    except Exception as e:
+        return f"Error executing mouse click: {str(e)}"
+
+def mouse_scroll(amount: int) -> str:
+    """Scroll the active window up or down with the mouse wheel.
+    
+    Args:
+        amount: Number of scroll steps. Positive numbers scroll UP, negative numbers scroll DOWN (e.g. -500 to scroll down).
+    """
+    try:
+        pyautogui.scroll(amount)
+        direction = "UP" if amount > 0 else "DOWN"
+        return f"Scrolled {direction} by {abs(amount)} steps."
+    except Exception as e:
+        return f"Error scrolling: {str(e)}"
+
+def mouse_drag(start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.5) -> str:
+    """Drag the mouse with the left button held down from (start_x, start_y) to (end_x, end_y).
+    
+    Args:
+        start_x: Starting X coordinate.
+        start_y: Starting Y coordinate.
+        end_x: Ending X coordinate.
+        end_y: Ending Y coordinate.
+        duration: Duration of drag in seconds (default 0.5).
+    """
+    try:
+        pyautogui.moveTo(start_x, start_y)
+        pyautogui.dragTo(end_x, end_y, duration=duration, button="left")
+        return f"Dragged mouse from ({start_x}, {start_y}) to ({end_x}, {end_y})."
+    except Exception as e:
+        return f"Error dragging mouse: {str(e)}"
+
+def search_chrome(query: str, search_engine: str = "google") -> str:
+    """Open Google Chrome and search for a query or open a website URL.
+    
+    Args:
+        query: Search query (e.g. 'latest AI news', 'weather today') or direct URL ('youtube.com', 'https://github.com').
+        search_engine: 'google' or 'youtube' or 'bing' (default 'google').
+    """
+    import urllib.parse
+    try:
+        if query.startswith("http://") or query.startswith("https://"):
+            url = query
+        elif "." in query and " " not in query and not query.endswith("."):
+            url = f"https://{query}"
+        elif search_engine.lower() == "youtube":
+            url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
+        elif search_engine.lower() == "bing":
+            url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}"
+        else:
+            url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
+
+        # Launch via powershell start or default browser
+        run_powershell(f'Start-Process "chrome.exe" -ArgumentList "{url}" -ErrorAction SilentlyContinue; if (!$?) {{ Start-Process "{url}" }}')
+        return f"Opened Chrome and navigated to: {url}"
+    except Exception as e:
+        return f"Error searching Chrome: {str(e)}"
+
+def chrome_action(action: str) -> str:
+    """Execute standard browser navigation actions on Google Chrome / active browser.
+    
+    Args:
+        action: One of 'new_tab', 'close_tab', 'next_tab', 'prev_tab', 'reopen_tab', 'refresh', 'back', 'forward', 'zoom_in', 'zoom_out', 'fullscreen', 'address_bar'.
+    """
+    action = action.lower().strip()
+    try:
+        if action in ("new_tab", "tab"):
+            pyautogui.hotkey("ctrl", "t")
+            return "Opened new browser tab."
+        elif action in ("close_tab", "close"):
+            pyautogui.hotkey("ctrl", "w")
+            return "Closed current browser tab."
+        elif action in ("next_tab", "next"):
+            pyautogui.hotkey("ctrl", "tab")
+            return "Switched to next tab."
+        elif action in ("prev_tab", "previous"):
+            pyautogui.hotkey("ctrl", "shift", "tab")
+            return "Switched to previous tab."
+        elif action in ("reopen_tab", "undo_close"):
+            pyautogui.hotkey("ctrl", "shift", "t")
+            return "Reopened last closed tab."
+        elif action in ("refresh", "reload"):
+            pyautogui.hotkey("ctrl", "r")
+            return "Refreshed browser page."
+        elif action == "back":
+            pyautogui.hotkey("alt", "left")
+            return "Navigated back."
+        elif action == "forward":
+            pyautogui.hotkey("alt", "right")
+            return "Navigated forward."
+        elif action in ("address_bar", "url_bar"):
+            pyautogui.hotkey("ctrl", "l")
+            return "Focused address bar."
+        elif action == "fullscreen":
+            pyautogui.press("f11")
+            return "Toggled fullscreen mode."
+        else:
+            return f"Unknown browser action: {action}."
+    except Exception as e:
+        return f"Error executing browser action '{action}': {str(e)}"
+
+def type_and_press_enter(text: str) -> str:
+    """Type a string into the currently focused input box or application and press the Enter key.
+    
+    Args:
+        text: The text to type before pressing Enter.
+    """
+    try:
+        pyautogui.typewrite(text, interval=0.02)
+        time.sleep(0.1)
+        pyautogui.press("enter")
+        return f"Typed '{text}' and pressed Enter."
+    except Exception as e:
+        return f"Error typing and pressing Enter: {str(e)}"
+
 def press_hotkey_or_type(text: str = "", hotkey: str = "") -> str:
     """Type keyboard text or execute a keyboard hotkey shortcut.
     
     Args:
         text: Text string to type.
-        hotkey: Hotkey combination, e.g. 'ctrl+c', 'ctrl+v', 'alt+f4', 'alt+tab', 'enter', 'esc'.
+        hotkey: Hotkey combination, e.g. 'ctrl+c', 'ctrl+v', 'alt+f4', 'alt+tab', 'enter', 'esc', 'win+d'.
     """
     try:
         results = []
@@ -376,6 +519,13 @@ def press_hotkey_or_type(text: str = "", hotkey: str = "") -> str:
 AVAILABLE_TOOLS = [
     run_powershell,
     take_screenshot,
+    get_screen_resolution,
+    mouse_move_and_click,
+    mouse_scroll,
+    mouse_drag,
+    search_chrome,
+    chrome_action,
+    type_and_press_enter,
     open_application_or_url,
     control_volume,
     control_media,

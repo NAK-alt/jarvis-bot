@@ -17,13 +17,16 @@ JARVIS_CLOUD_SYSTEM_INSTRUCTION = """
 You are J.A.R.V.I.S., the sophisticated, witty, polite, and hyper-intelligent AI personal assistant created for the user.
 Address the user respectfully as 'Sir' (or their preferred title/name).
 
-You operate 24/7 in the cloud and are connected to the user's Windows PC via a secure real-time bridge.
+You operate 24/7 in the cloud and are connected to the user's Windows laptop/PC via a secure real-time bridge.
 
 Core Capabilities:
-1. Long-Term Memory: You possess persistent lifelong memory across sessions, server restarts, and conversations. You remember the user's preferences, background, past discussions, instructions, and projects.
-2. PC Control: When the user requests an action on their Windows PC (open apps/terminals, volume, media, screenshot, system metrics, terminal commands, files, lock workstation), invoke the appropriate tool.
+1. Complete Laptop & GUI Control (Computer Use):
+   - You can control the user's laptop like a human: move mouse ('mouse_move_and_click'), drag ('mouse_drag'), scroll ('mouse_scroll'), type text & press enter ('type_and_press_enter'), execute keyboard hotkeys ('press_hotkey_or_type').
+   - You can search Chrome and browse the web ('search_chrome'), manage tabs ('chrome_action'), open applications ('open_application_or_url'), and run PowerShell scripts ('run_powershell').
+   - When asked to click something specific on screen, you can capture a screenshot ('take_screenshot') to inspect the screen resolution and elements with your vision intelligence, and then click with precision coordinates.
+2. Long-Term Memory: You possess persistent lifelong memory across sessions, server restarts, and conversations. You remember the user's preferences, background, past discussions, instructions, and projects.
 3. Offline Awareness: If a local tool indicates that the user's PC is currently offline/disconnected, politely inform the user that their workstation is currently offline.
-4. Intelligent Cloud Reasoning: Handle analysis, coding, math, general questions, and vision tasks directly in the cloud 24/7.
+4. Intelligent Cloud Reasoning: Handle analysis, coding, math, general questions, web searches, and vision tasks directly in the cloud 24/7.
 5. Proactive Memory: When the user tells you about themselves, their favorite tools, shortcuts, project details, or asks you to remember something, call 'remember_fact' immediately.
 6. Tone: Charismatic, sharp, British-polite, witty, and concise.
 """
@@ -73,6 +76,52 @@ class CloudJarvisAgent:
         def forget_fact(key: str, category: str = "general") -> str:
             """Remove a fact from long-term memory."""
             return MemoryManager.delete_memory(user_id, key, category)
+
+        def search_past_conversations(query: str) -> str:
+            """Search through every single past message and discussion ever recorded in previous chat history."""
+            results = MemoryManager.search_full_chat_history(user_id, query, limit=12)
+            if not results:
+                return f"No past messages found containing '{query}'."
+            lines = [f"Found {len(results)} past messages matching '{query}':"]
+            for r in results:
+                lines.append(f"• [{r['date']}] {r['speaker']}: {r['content']}")
+            return "\n".join(lines)
+
+        # --- GUI Mouse, Chrome & Laptop Control Tools ---
+        def get_screen_resolution() -> str:
+            """Get screen width and height in pixels along with current mouse position."""
+            res = self._call_bridge_sync("get_screen_resolution", {})
+            return res.get("result", "Screen size unknown.")
+
+        def mouse_move_and_click(x: int, y: int, button: str = "left", clicks: int = 1) -> str:
+            """Move the mouse cursor to (x, y) coordinates and perform a click (left, right, double)."""
+            res = self._call_bridge_sync("mouse_move_and_click", {"x": x, "y": y, "button": button, "clicks": clicks})
+            return res.get("result", "Mouse click executed.")
+
+        def mouse_scroll(amount: int) -> str:
+            """Scroll active window up or down (positive = up, negative = down, e.g. -500)."""
+            res = self._call_bridge_sync("mouse_scroll", {"amount": amount})
+            return res.get("result", "Scrolled.")
+
+        def mouse_drag(start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.5) -> str:
+            """Drag mouse with button held down from (start_x, start_y) to (end_x, end_y)."""
+            res = self._call_bridge_sync("mouse_drag", {"start_x": start_x, "start_y": start_y, "end_x": end_x, "end_y": end_y, "duration": duration})
+            return res.get("result", "Mouse drag executed.")
+
+        def search_chrome(query: str, search_engine: str = "google") -> str:
+            """Open Google Chrome and search for a query or open a URL (e.g. 'latest AI news', 'youtube.com')."""
+            res = self._call_bridge_sync("search_chrome", {"query": query, "search_engine": search_engine})
+            return res.get("result", "Chrome search executed.")
+
+        def chrome_action(action: str) -> str:
+            """Perform browser tab navigation in Chrome ('new_tab', 'close_tab', 'next_tab', 'prev_tab', 'refresh', 'back', 'forward', 'address_bar', 'fullscreen')."""
+            res = self._call_bridge_sync("chrome_action", {"action": action})
+            return res.get("result", f"Browser action '{action}' executed.")
+
+        def type_and_press_enter(text: str) -> str:
+            """Type text into the active field and press Enter."""
+            res = self._call_bridge_sync("type_and_press_enter", {"text": text})
+            return res.get("result", "Typed and pressed Enter.")
 
         # --- PC Automation Tools ---
         def run_powershell(command: str) -> str:
@@ -180,21 +229,18 @@ class CloudJarvisAgent:
                 return f"🟢 PC is ONLINE (Host: {info.get('hostname', 'Windows PC')}, OS: {info.get('os', 'Windows')})."
             return "🔴 PC is currently OFFLINE / disconnected."
 
-        def search_past_conversations(query: str) -> str:
-            """Search through every single past message and discussion ever recorded in previous chat history."""
-            results = MemoryManager.search_full_chat_history(user_id, query, limit=12)
-            if not results:
-                return f"No past messages found containing '{query}'."
-            lines = [f"Found {len(results)} past messages matching '{query}':"]
-            for r in results:
-                lines.append(f"• [{r['date']}] {r['speaker']}: {r['content']}")
-            return "\n".join(lines)
-
         return [
             remember_fact,
             recall_memory,
             forget_fact,
             search_past_conversations,
+            get_screen_resolution,
+            mouse_move_and_click,
+            mouse_scroll,
+            mouse_drag,
+            search_chrome,
+            chrome_action,
+            type_and_press_enter,
             run_powershell,
             take_screenshot,
             open_application_or_url,
