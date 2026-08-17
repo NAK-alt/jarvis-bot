@@ -144,7 +144,7 @@ class MemoryManager:
             logger.error(f"Error recording message history: {e}")
 
     @staticmethod
-    def get_recent_history(user_id: int, limit: int = 12) -> List[Dict[str, str]]:
+    def get_recent_history(user_id: int, limit: int = 24) -> List[Dict[str, str]]:
         """Get the latest N conversation messages formatted for Gemini chat history."""
         try:
             with sqlite3.connect(DB_PATH) as conn:
@@ -164,3 +164,56 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"Error loading conversation history: {e}")
             return []
+
+    @staticmethod
+    def search_full_chat_history(user_id: int, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Search across every single message ever sent or discussed in past conversations."""
+        import datetime
+        try:
+            with sqlite3.connect(DB_PATH) as conn:
+                cursor = conn.cursor()
+                like_query = f"%{query}%"
+                cursor.execute("""
+                    SELECT role, content, timestamp FROM conversation_history
+                    WHERE (user_id = ? OR user_id = 0)
+                      AND content LIKE ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                """, (user_id, like_query, limit))
+                rows = cursor.fetchall()
+                results = []
+                for role, content, ts in rows:
+                    dt_str = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+                    speaker = "User" if role == "user" else "Jarvis"
+                    results.append({
+                        "speaker": speaker,
+                        "date": dt_str,
+                        "content": content
+                    })
+                return results
+        except Exception as e:
+            logger.error(f"Error searching chat history: {e}")
+            return []
+
+    @staticmethod
+    def get_history_stats(user_id: int) -> Dict[str, Any]:
+        """Get statistics about user's lifelong conversation archive."""
+        import datetime
+        try:
+            with sqlite3.connect(DB_PATH) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*), MIN(timestamp) FROM conversation_history WHERE user_id = ? OR user_id = 0", (user_id,))
+                msg_count, min_ts = cursor.fetchone()
+                
+                cursor.execute("SELECT COUNT(*) FROM memories WHERE user_id = ? OR user_id = 0", (user_id,))
+                memory_count = cursor.fetchone()[0]
+
+                first_date = datetime.datetime.fromtimestamp(min_ts).strftime("%Y-%m-%d") if min_ts else "Today"
+                return {
+                    "total_messages": msg_count or 0,
+                    "total_memories": memory_count or 0,
+                    "first_chat_date": first_date
+                }
+        except Exception as e:
+            logger.error(f"Error getting history stats: {e}")
+            return {"total_messages": 0, "total_memories": 0, "first_chat_date": "N/A"}

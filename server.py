@@ -255,6 +255,38 @@ async def forget_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     res = MemoryManager.delete_memory(user_id, key)
     await update.message.reply_text(f"🗑️ {res}")
 
+async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /history command to show conversation archive statistics."""
+    from memory import MemoryManager
+    user_id = update.effective_user.id
+    stats = MemoryManager.get_history_stats(user_id)
+    await update.message.reply_text(
+        f"📜 **J.A.R.V.I.S. Lifelong Conversation Archive**\n\n"
+        f"• **Total Messages Recorded:** `{stats['total_messages']}`\n"
+        f"• **Stored Facts / Memories:** `{stats['total_memories']}`\n"
+        f"• **First Interaction Date:** `{stats['first_chat_date']}`\n\n"
+        "💡 *Jarvis retains full lifelong memory across all interactions.*\n"
+        "You can search past chats anytime with `/search <query>` or ask in natural language (e.g. *'What did we talk about yesterday?'*).",
+        parse_mode="Markdown"
+    )
+
+async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /search <query> to search full chat history."""
+    from memory import MemoryManager
+    user_id = update.effective_user.id
+    query = " ".join(context.args) if context.args else ""
+    if not query:
+        await update.message.reply_text("Usage: `/search <keyword or phrase>`", parse_mode="Markdown")
+        return
+    results = MemoryManager.search_full_chat_history(user_id, query, limit=8)
+    if not results:
+        await update.message.reply_text(f"🔍 No past messages found matching: *'{query}'*", parse_mode="Markdown")
+        return
+    lines = [f"🔍 **Past Conversation Matches for '{query}':**\n"]
+    for r in results:
+        lines.append(f"• `[{r['date']}]` **{r['speaker']}**: {r['content']}")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await handle_message_content(update, context, text=update.message.text)
 
@@ -332,6 +364,8 @@ async def main():
     tg_app.add_handler(CommandHandler("memories", memory_command))
     tg_app.add_handler(CommandHandler("remember", remember_command))
     tg_app.add_handler(CommandHandler("forget", forget_command))
+    tg_app.add_handler(CommandHandler("history", history_command))
+    tg_app.add_handler(CommandHandler("search", search_command))
 
     tg_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
     tg_app.add_handler(MessageHandler(filters.VOICE, handle_voice))

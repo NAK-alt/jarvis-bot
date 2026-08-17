@@ -180,10 +180,21 @@ class CloudJarvisAgent:
                 return f"🟢 PC is ONLINE (Host: {info.get('hostname', 'Windows PC')}, OS: {info.get('os', 'Windows')})."
             return "🔴 PC is currently OFFLINE / disconnected."
 
+        def search_past_conversations(query: str) -> str:
+            """Search through every single past message and discussion ever recorded in previous chat history."""
+            results = MemoryManager.search_full_chat_history(user_id, query, limit=12)
+            if not results:
+                return f"No past messages found containing '{query}'."
+            lines = [f"Found {len(results)} past messages matching '{query}':"]
+            for r in results:
+                lines.append(f"• [{r['date']}] {r['speaker']}: {r['content']}")
+            return "\n".join(lines)
+
         return [
             remember_fact,
             recall_memory,
             forget_fact,
+            search_past_conversations,
             run_powershell,
             take_screenshot,
             open_application_or_url,
@@ -221,8 +232,8 @@ class CloudJarvisAgent:
             temperature=0.7,
         )
 
-        # Build initial history from SQLite if available
-        recent_history = MemoryManager.get_recent_history(user_id, limit=10)
+        # Build initial history from SQLite (up to 30 recent messages)
+        recent_history = MemoryManager.get_recent_history(user_id, limit=30)
         history_contents = []
         for turn in recent_history:
             role = "user" if turn["role"] == "user" else "model"
