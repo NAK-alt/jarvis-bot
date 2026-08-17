@@ -215,6 +215,46 @@ async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
+async def memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /memory or /memories command to view long-term memory."""
+    from memory import MemoryManager
+    user_id = update.effective_user.id
+    summary = MemoryManager.get_memories_summary(user_id)
+    await update.message.reply_text(
+        f"🧠 **J.A.R.V.I.S. Long-Term Memory Profile:**\n\n{summary}\n\n"
+        "💡 *Tips:*\n"
+        "• Tell Jarvis anything in chat (e.g. *'Remember that I am working on Project X'*) and he will remember forever.\n"
+        "• `/remember <key>: <value>` - Add a direct fact\n"
+        "• `/forget <key>` - Remove a fact",
+        parse_mode="Markdown"
+    )
+
+async def remember_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /remember <fact> command."""
+    from memory import MemoryManager
+    user_id = update.effective_user.id
+    text = " ".join(context.args) if context.args else ""
+    if not text:
+        await update.message.reply_text("Usage: `/remember <key>: <value>` or tell me directly in chat.", parse_mode="Markdown")
+        return
+    if ":" in text:
+        k, v = text.split(":", 1)
+    else:
+        k, v = "user_note", text
+    res = MemoryManager.save_fact(user_id, k.strip(), v.strip(), "custom")
+    await update.message.reply_text(f"💾 {res}")
+
+async def forget_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /forget <key> command."""
+    from memory import MemoryManager
+    user_id = update.effective_user.id
+    key = " ".join(context.args) if context.args else ""
+    if not key:
+        await update.message.reply_text("Usage: `/forget <key>`", parse_mode="Markdown")
+        return
+    res = MemoryManager.delete_memory(user_id, key)
+    await update.message.reply_text(f"🗑️ {res}")
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await handle_message_content(update, context, text=update.message.text)
 
@@ -288,6 +328,10 @@ async def main():
     tg_app.add_handler(CommandHandler("myid", myid_command))
     tg_app.add_handler(CommandHandler("voice", voice_command))
     tg_app.add_handler(CommandHandler("model", model_command))
+    tg_app.add_handler(CommandHandler("memory", memory_command))
+    tg_app.add_handler(CommandHandler("memories", memory_command))
+    tg_app.add_handler(CommandHandler("remember", remember_command))
+    tg_app.add_handler(CommandHandler("forget", forget_command))
 
     tg_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
     tg_app.add_handler(MessageHandler(filters.VOICE, handle_voice))

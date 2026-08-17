@@ -9,6 +9,7 @@ from google import genai
 from google.genai import types
 import config
 from bridge_manager import BridgeManager
+from memory import MemoryManager
 
 logger = logging.getLogger("CloudJarvisAgent")
 
@@ -18,14 +19,13 @@ Address the user respectfully as 'Sir' (or their preferred title/name).
 
 You operate 24/7 in the cloud and are connected to the user's Windows PC via a secure real-time bridge.
 
-Capabilities:
-1. When the user asks for general assistance, questions, analysis, image inspection, code, or conversational tasks:
-   - Handle them directly in the cloud with your high intelligence.
-2. When the user requests an action on their Windows PC (open apps, volume, media, screenshot, system metrics, terminal commands, files, lock workstation):
-   - Immediately invoke the appropriate tool.
-3. If the tool indicates that the user's PC is currently offline/disconnected:
-   - Politely inform the user that their workstation is currently offline (e.g. 'Your Windows workstation is currently offline, sir. Once powered on and connected, I can perform that for you.').
-4. Keep spoken and text responses natural, charismatic, sharp, and concise.
+Core Capabilities:
+1. Long-Term Memory: You possess persistent lifelong memory across sessions, server restarts, and conversations. You remember the user's preferences, background, past discussions, instructions, and projects.
+2. PC Control: When the user requests an action on their Windows PC (open apps/terminals, volume, media, screenshot, system metrics, terminal commands, files, lock workstation), invoke the appropriate tool.
+3. Offline Awareness: If a local tool indicates that the user's PC is currently offline/disconnected, politely inform the user that their workstation is currently offline.
+4. Intelligent Cloud Reasoning: Handle analysis, coding, math, general questions, and vision tasks directly in the cloud 24/7.
+5. Proactive Memory: When the user tells you about themselves, their favorite tools, shortcuts, project details, or asks you to remember something, call 'remember_fact' immediately.
+6. Tone: Charismatic, sharp, British-polite, witty, and concise.
 """
 
 class CloudJarvisAgent:
@@ -55,9 +55,26 @@ class CloudJarvisAgent:
             logger.error(f"Error calling bridge tool '{tool_name}' thread-safely: {e}")
             return {"status": "error", "result": f"Bridge execution error: {str(e)}"}
 
-    def _build_tools_list(self):
+    def _build_tools_list(self, user_id: int):
         """Define Python callable tools for Gemini Automatic Function Calling (AFC)."""
 
+        # --- Long-Term Memory Tools ---
+        def remember_fact(key: str, value: str, category: str = "general") -> str:
+            """Permanently save a piece of information, preference, project detail, or instruction into long-term memory."""
+            return MemoryManager.save_fact(user_id, key, value, category)
+
+        def recall_memory(query: str) -> str:
+            """Search through persistent long-term memories and past facts about the user."""
+            results = MemoryManager.search_memories(user_id, query)
+            if not results:
+                return f"No memories found matching '{query}'."
+            return "\n".join([f"• [{r['category'].upper()}] {r['key']}: {r['value']}" for r in results])
+
+        def forget_fact(key: str, category: str = "general") -> str:
+            """Remove a fact from long-term memory."""
+            return MemoryManager.delete_memory(user_id, key, category)
+
+        # --- PC Automation Tools ---
         def run_powershell(command: str) -> str:
             """Execute a Windows PowerShell command on the user's PC."""
             res = self._call_bridge_sync("run_powershell", {"command": command})
@@ -74,7 +91,7 @@ class CloudJarvisAgent:
             return res.get("result", "Screenshot captured.")
 
         def open_application_or_url(target: str) -> str:
-            """Open an application, URL, or program on the user's PC."""
+            """Open an application, URL, or program (e.g. 'antigravity', 'terminal', 'spotify', 'chrome') on the user's PC."""
             res = self._call_bridge_sync("open_application_or_url", {"target": target})
             return res.get("result", f"Attempted to open {target}.")
 
@@ -164,6 +181,9 @@ class CloudJarvisAgent:
             return "🔴 PC is currently OFFLINE / disconnected."
 
         return [
+            remember_fact,
+            recall_memory,
+            forget_fact,
             run_powershell,
             take_screenshot,
             open_application_or_url,
@@ -185,13 +205,37 @@ class CloudJarvisAgent:
         ]
 
     def _get_or_create_chat(self, user_id: int, model_name: str):
-        tools = self._build_tools_list()
+        tools = self._build_tools_list(user_id)
+        
+        # Load user's persistent long-term memories
+        memories_summary = MemoryManager.get_memories_summary(user_id)
+        system_instruction_with_memory = f"""
+{JARVIS_CLOUD_SYSTEM_INSTRUCTION}
+
+### 🧠 Persistent Long-Term Memories & Known Facts About User:
+{memories_summary}
+"""
         config_obj = types.GenerateContentConfig(
-            system_instruction=JARVIS_CLOUD_SYSTEM_INSTRUCTION,
+            system_instruction=system_instruction_with_memory,
             tools=tools,
             temperature=0.7,
         )
-        return self.client.chats.create(model=model_name, config=config_obj)
+
+        # Build initial history from SQLite if available
+        recent_history = MemoryManager.get_recent_history(user_id, limit=10)
+        history_contents = []
+        for turn in recent_history:
+            role = "user" if turn["role"] == "user" else "model"
+            history_contents.append(types.Content(
+                role=role,
+                parts=[types.Part.from_text(text=turn["content"])]
+            ))
+
+        return self.client.chats.create(
+            model=model_name,
+            config=config_obj,
+            history=history_contents if history_contents else None
+        )
 
     async def process_user_input(
         self,
@@ -202,25 +246,29 @@ class CloudJarvisAgent:
         image_bytes: bytes = None,
         image_mime: str = "image/jpeg"
     ) -> dict:
-        """Process user message in the cloud and coordinate with local PC if needed."""
+        """Process user message in the cloud with persistent memory and coordinate with local PC."""
         self.last_screenshot_bytes = None
         self.last_files_to_send.clear()
         self.loop = asyncio.get_running_loop()
 
         # Build payload
+        user_text_for_record = text or ""
         if audio_bytes:
             message_payload = [
                 types.Part.from_bytes(data=audio_bytes, mime_type=audio_mime),
                 "Listen to my voice note instruction and fulfill it as Jarvis. Execute any necessary tools."
             ]
+            user_text_for_record = "[Voice Message]"
         elif image_bytes:
             caption = text or "Please analyze this image and assist me accordingly, sir."
             message_payload = [
                 types.Part.from_bytes(data=image_bytes, mime_type=image_mime),
                 caption
             ]
+            user_text_for_record = f"[Photo]: {caption}"
         elif text:
             message_payload = text
+            user_text_for_record = text
         else:
             return {
                 "text": "I didn't receive any input, sir.",
@@ -248,6 +296,11 @@ class CloudJarvisAgent:
                 response = await asyncio.to_thread(chat.send_message, message_payload)
 
                 reply_text = response.text or "Task executed, sir."
+
+                # Record multi-turn conversation into persistent SQLite database
+                MemoryManager.record_message(user_id, "user", user_text_for_record)
+                MemoryManager.record_message(user_id, "model", reply_text)
+
                 return {
                     "text": reply_text,
                     "screenshot_bytes": self.last_screenshot_bytes,
