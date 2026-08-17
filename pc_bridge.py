@@ -175,7 +175,18 @@ async def run_client():
         await asyncio.sleep(reconnect_delay)
         reconnect_delay = min(reconnect_delay * 1.5, 30)
 
+def acquire_single_instance_lock():
+    """Ensure only one instance of the PC bridge runs at a time."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", 57788))
+        return s
+    except (OSError, socket.error):
+        logger.warning("Another instance of J.A.R.V.I.S. PC Bridge is already running. Exiting.")
+        sys.exit(0)
+
 if __name__ == "__main__":
+    _lock_socket = acquire_single_instance_lock()
     try:
         asyncio.run(run_client())
     except KeyboardInterrupt:
