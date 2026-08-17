@@ -231,6 +231,7 @@ class CloudJarvisAgent:
 
         # Filter models not in cooldown
         now = time.time()
+        models_to_try = [config.PRIMARY_MODEL] + [m for m in config.FALLBACK_MODELS if m != config.PRIMARY_MODEL]
         active_models = [m for m in models_to_try if self.disabled_models_until.get(m, 0) < now]
         if not active_models:
             active_models = models_to_try  # If all in cooldown, try all anyway
