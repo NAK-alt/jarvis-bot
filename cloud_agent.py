@@ -29,31 +29,42 @@ Capabilities:
 """
 
 class CloudJarvisAgent:
-    def __init__(self, bridge_manager: BridgeManager):
+    def __init__(self, bridge_manager: BridgeManager, loop: Optional[asyncio.AbstractEventLoop] = None):
         if not config.GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY is not set in environment or .env")
 
         self.client = genai.Client(api_key=config.GEMINI_API_KEY)
         self.bridge = bridge_manager
+        self.loop = loop or asyncio.get_event_loop()
         self.chat_sessions: Dict[str, Any] = {}
         
         # State tracked per request
         self.last_screenshot_bytes: Optional[bytes] = None
         self.last_files_to_send: List[Dict[str, Any]] = []
 
+    def _call_bridge_sync(self, tool_name: str, args: dict) -> dict:
+        """Call async bridge method thread-safely from Gemini synchronous tool callback."""
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self.bridge.execute_tool_on_pc(tool_name, args, timeout=60.0),
+                self.loop
+            )
+            return future.result(timeout=65.0)
+        except Exception as e:
+            logger.error(f"Error calling bridge tool '{tool_name}' thread-safely: {e}")
+            return {"status": "error", "result": f"Bridge execution error: {str(e)}"}
+
     def _build_tools_list(self):
         """Define Python callable tools for Gemini Automatic Function Calling (AFC)."""
 
         def run_powershell(command: str) -> str:
             """Execute a Windows PowerShell command on the user's PC."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("run_powershell", {"command": command}))
+            res = self._call_bridge_sync("run_powershell", {"command": command})
             return res.get("result", "Execution failed.")
 
         def take_screenshot() -> str:
             """Capture a screenshot of the user's active PC screen."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("take_screenshot", {}))
+            res = self._call_bridge_sync("take_screenshot", {})
             if res.get("screenshot_base64"):
                 try:
                     self.last_screenshot_bytes = base64.b64decode(res["screenshot_base64"])
@@ -63,86 +74,72 @@ class CloudJarvisAgent:
 
         def open_application_or_url(target: str) -> str:
             """Open an application, URL, or program on the user's PC."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("open_application_or_url", {"target": target}))
+            res = self._call_bridge_sync("open_application_or_url", {"target": target})
             return res.get("result", f"Attempted to open {target}.")
 
         def control_volume(action: str) -> str:
             """Adjust Windows audio volume (up, down, mute, unmute)."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("control_volume", {"action": action}))
+            res = self._call_bridge_sync("control_volume", {"action": action})
             return res.get("result", "Volume adjusted.")
 
         def control_media(action: str) -> str:
             """Control media playback (play_pause, next, prev, stop)."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("control_media", {"action": action}))
+            res = self._call_bridge_sync("control_media", {"action": action})
             return res.get("result", "Media playback updated.")
 
         def lock_workstation() -> str:
             """Lock the user's Windows PC."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("lock_workstation", {}))
+            res = self._call_bridge_sync("lock_workstation", {})
             return res.get("result", "Workstation locked.")
 
         def get_system_status() -> str:
             """Get real-time CPU, RAM, battery, uptime, and date/time of the PC."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("get_system_status", {}))
+            res = self._call_bridge_sync("get_system_status", {})
             return res.get("result", "System status retrieved.")
 
         def list_open_windows() -> str:
             """List all active open application windows on the PC."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("list_open_windows", {}))
+            res = self._call_bridge_sync("list_open_windows", {})
             return res.get("result", "Windows listed.")
 
         def focus_window(window_title: str) -> str:
             """Bring a specific application window to the foreground."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("focus_window", {"window_title": window_title}))
+            res = self._call_bridge_sync("focus_window", {"window_title": window_title})
             return res.get("result", f"Focus shifted to {window_title}.")
 
         def close_application(process_name: str) -> str:
             """Close or terminate an application by process name."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("close_application", {"process_name": process_name}))
+            res = self._call_bridge_sync("close_application", {"process_name": process_name})
             return res.get("result", f"Closed {process_name}.")
 
         def get_clipboard_text() -> str:
             """Read current text from Windows clipboard."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("get_clipboard_text", {}))
+            res = self._call_bridge_sync("get_clipboard_text", {})
             return res.get("result", "Clipboard read.")
 
         def set_clipboard_text(text: str) -> str:
             """Copy text onto the Windows clipboard."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("set_clipboard_text", {"text": text}))
+            res = self._call_bridge_sync("set_clipboard_text", {"text": text})
             return res.get("result", "Copied to clipboard.")
 
         def show_desktop_notification(title: str, message: str) -> str:
             """Display a desktop notification toast on the PC."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("show_desktop_notification", {"title": title, "message": message}))
+            res = self._call_bridge_sync("show_desktop_notification", {"title": title, "message": message})
             return res.get("result", "Notification displayed.")
 
         def search_files(query: str, root_folder: str = "") -> str:
             """Search for files matching a pattern on the PC (Downloads, Documents, Desktop, etc.)."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("search_files", {"query": query, "root_folder": root_folder}))
+            res = self._call_bridge_sync("search_files", {"query": query, "root_folder": root_folder})
             return res.get("result", "File search complete.")
 
         def read_text_file(file_path: str, max_lines: int = 60) -> str:
             """Read lines from a text/code document on the PC."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("read_text_file", {"file_path": file_path, "max_lines": max_lines}))
+            res = self._call_bridge_sync("read_text_file", {"file_path": file_path, "max_lines": max_lines})
             return res.get("result", "File read.")
 
         def send_file_to_telegram(file_path: str) -> str:
             """Transfer a document, photo, or file from the PC to the user on Telegram."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("send_file_to_telegram", {"file_path": file_path}))
+            res = self._call_bridge_sync("send_file_to_telegram", {"file_path": file_path})
             if res.get("file_data_base64"):
                 try:
                     self.last_files_to_send.append({
@@ -155,8 +152,7 @@ class CloudJarvisAgent:
 
         def press_hotkey_or_type(text: str = "", hotkey: str = "") -> str:
             """Type keyboard text or press keyboard shortcuts on PC."""
-            loop = asyncio.get_event_loop()
-            res = loop.run_until_complete(self.bridge.execute_tool_on_pc("press_hotkey_or_type", {"text": text, "hotkey": hotkey}))
+            res = self._call_bridge_sync("press_hotkey_or_type", {"text": text, "hotkey": hotkey})
             return res.get("result", "Keyboard action executed.")
 
         def check_pc_status() -> str:
@@ -208,6 +204,7 @@ class CloudJarvisAgent:
         """Process user message in the cloud and coordinate with local PC if needed."""
         self.last_screenshot_bytes = None
         self.last_files_to_send.clear()
+        self.loop = asyncio.get_running_loop()
 
         # Build payload
         if audio_bytes:
@@ -241,7 +238,6 @@ class CloudJarvisAgent:
                     self.chat_sessions[chat_key] = self._get_or_create_chat(user_id, model_name)
 
                 chat = self.chat_sessions[chat_key]
-                # Run the blocking send_message in thread pool to avoid blocking asyncio event loop
                 response = await asyncio.to_thread(chat.send_message, message_payload)
 
                 reply_text = response.text or "Task executed, sir."
