@@ -15,8 +15,12 @@ if ($Disable) {
 } else {
     $ws = New-Object -ComObject WScript.Shell
     $s = $ws.CreateShortcut($shortcutPath)
-    $s.TargetPath = "pyw.exe"
-    $s.Arguments = "-3.12 `"$PSScriptRoot\pc_bridge.py`""
+    $pythonwPath = "C:\Users\ROG\AppData\Local\Programs\Python\Python312\pythonw.exe"
+    if (-not (Test-Path $pythonwPath)) {
+        $pythonwPath = (Get-Command pythonw.exe -ErrorAction SilentlyContinue).Source
+    }
+    $s.TargetPath = $pythonwPath
+    $s.Arguments = "`"$PSScriptRoot\pc_bridge.py`""
     $s.WorkingDirectory = $PSScriptRoot
     $s.Description = "Start J.A.R.V.I.S. PC Bridge in Background"
     $s.Save()
