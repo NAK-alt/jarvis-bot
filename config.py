@@ -20,11 +20,11 @@ if ALLOWED_USER_IDS_RAW:
 VOICE_NAME = os.getenv("VOICE_NAME", "en-GB-RyanNeural")
 VOICE_REPLY_ENABLED = os.getenv("VOICE_REPLY_ENABLED", "true").lower() in ("true", "1", "yes")
 
-# Gemini Models with fallbacks
-PRIMARY_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+# Gemini Models with fallbacks (Speed-optimized)
+PRIMARY_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 FALLBACK_MODELS = [
-    "gemini-3.5-flash",
     "gemini-3.1-flash-lite",
+    "gemini-3.5-flash",
     "gemini-flash-latest",
     "gemini-3.7-flash",
     "gemini-3-flash-preview",

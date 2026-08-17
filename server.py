@@ -158,20 +158,62 @@ async def handle_message_content(
         except Exception as e:
             logger.error(f"Failed to send transferred file: {e}")
 
-    # Send text response
+    # Send text response immediately
     await update.message.reply_text(reply_text)
 
-    # Send voice reply if enabled
-    if config.VOICE_REPLY_ENABLED and reply_text:
-        try:
-            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.RECORD_VOICE)
-            voice_path = await text_to_speech(reply_text)
-            if voice_path and os.path.exists(voice_path):
-                with open(voice_path, "rb") as voice_file:
-                    await update.message.reply_voice(voice=voice_file)
+    # Send voice reply asynchronously in background if enabled
+    if config.VOICE_REPLY_ENABLED and reply_text and len(reply_text.strip()) > 0:
+        asyncio.create_task(_send_voice_note_background(context.bot, update.effective_chat.id, reply_text))
+
+async def _send_voice_note_background(bot, chat_id: int, text: str):
+    """Generate and send voice note asynchronously in the background so text response is not delayed."""
+    try:
+        voice_path = await text_to_speech(text)
+        if voice_path and os.path.exists(voice_path):
+            with open(voice_path, "rb") as voice_file:
+                await bot.send_voice(chat_id=chat_id, voice=voice_file)
+            try:
                 os.remove(voice_path)
-        except Exception as e:
-            logger.error(f"Failed to send voice response: {e}")
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning(f"Background voice reply error: {e}")
+
+async def voice_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /voice on | off toggle command."""
+    args = context.args
+    if args and args[0].lower() in ("on", "enable", "true", "yes"):
+        config.VOICE_REPLY_ENABLED = True
+        await update.message.reply_text("🔊 **Voice replies: ENABLED** (Jarvis will send audio voice notes)", parse_mode="Markdown")
+    elif args and args[0].lower() in ("off", "disable", "false", "no"):
+        config.VOICE_REPLY_ENABLED = False
+        await update.message.reply_text("⚡ **Voice replies: DISABLED** (Jarvis will reply in instant text mode only)", parse_mode="Markdown")
+    else:
+        status = "ENABLED 🔊" if config.VOICE_REPLY_ENABLED else "DISABLED ⚡"
+        await update.message.reply_text(
+            f"🎙️ **Voice Reply Status:** {status}\n\n"
+            "To change setting:\n"
+            "• `/voice on` - Turn voice notes on\n"
+            "• `/voice off` - Turn voice notes off (maximum speed)",
+            parse_mode="Markdown"
+        )
+
+async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /model command to view or switch Gemini model."""
+    args = context.args
+    if args:
+        chosen = args[0].strip()
+        config.PRIMARY_MODEL = chosen
+        await update.message.reply_text(f"🚀 **Primary model set to:** `{chosen}`", parse_mode="Markdown")
+    else:
+        await update.message.reply_text(
+            f"🧠 **Current Active Model:** `{config.PRIMARY_MODEL}`\n\n"
+            "Fastest models:\n"
+            "• `/model gemini-3.1-flash-lite` (Ultra fast, sub-second)\n"
+            "• `/model gemini-3.5-flash` (Balanced, high intelligence)\n"
+            "• `/model gemini-3.7-flash` (Maximum reasoning)",
+            parse_mode="Markdown"
+        )
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await handle_message_content(update, context, text=update.message.text)
@@ -244,6 +286,8 @@ async def main():
     tg_app.add_handler(CommandHandler("screenshot", screenshot_command))
     tg_app.add_handler(CommandHandler("lock", lock_command))
     tg_app.add_handler(CommandHandler("myid", myid_command))
+    tg_app.add_handler(CommandHandler("voice", voice_command))
+    tg_app.add_handler(CommandHandler("model", model_command))
 
     tg_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
     tg_app.add_handler(MessageHandler(filters.VOICE, handle_voice))
