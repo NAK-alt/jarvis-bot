@@ -629,12 +629,40 @@ def press_key(key_name: str) -> str:
     except Exception as e:
         return f"Error pressing key '{key_name}': {str(e)}"
 
+def click_youtube_feed_video(video_index: int = 1) -> str:
+    """Click on the 1st, 2nd, 3rd, 4th, etc. recommended video on the YouTube Home Page / Feed.
+    
+    Args:
+        video_index: Number of the video on the home page (1 for top-left, 2 for 2nd, 3 for 3rd, 4 for 4th, 5 for row 2 left, etc.).
+    """
+    try:
+        focus_window("Chrome")
+        time.sleep(0.3)
+        width, height = pyautogui.size()
+        
+        idx = max(1, int(video_index))
+        col = (idx - 1) % 4
+        row = (idx - 1) // 4
+        
+        x_pcts = [22.0, 45.0, 68.0, 90.0]
+        y_pct = 34.0 + (row * 34.0)
+        x_pct = x_pcts[col]
+        
+        pixel_x = int((x_pct / 100.0) * width)
+        pixel_y = int((y_pct / 100.0) * height)
+        
+        win32_hardware_click(pixel_x, pixel_y, button="left", clicks=1)
+        return f"Clicked on YouTube Home Page video #{video_index} at ({pixel_x}, {pixel_y}) [{x_pct}%, {y_pct}%]."
+    except Exception as e:
+        return f"Error clicking home page video: {str(e)}"
+
 AVAILABLE_TOOLS = [
     run_powershell,
     take_screenshot,
     get_screen_resolution,
     mouse_move_and_click,
     click_ui_element,
+    click_youtube_feed_video,
     mouse_scroll,
     mouse_drag,
     search_chrome,

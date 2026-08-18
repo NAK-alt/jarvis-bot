@@ -317,6 +317,11 @@ class CloudJarvisAgent:
             res = self._call_bridge_sync("click_ui_element", {"x_percent": x_percent, "y_percent": y_percent, "button": button, "clicks": clicks})
             return res.get("result", "UI click executed.")
 
+        def click_youtube_feed_video(video_index: int = 1) -> str:
+            """Click on the 1st, 2nd, 3rd, 4th, etc. recommended video on the YouTube Home Page / Feed."""
+            res = self._call_bridge_sync("click_youtube_feed_video", {"video_index": video_index})
+            return res.get("result", "Clicked home page video.")
+
         def play_youtube_video(query: str, video_index: int = 1) -> str:
             """Search YouTube on Chrome and automatically open & play the 1st, 2nd, 3rd, etc. video."""
             res = self._call_bridge_sync("play_youtube_video", {"query": query, "video_index": video_index})
@@ -337,6 +342,7 @@ class CloudJarvisAgent:
             get_screen_resolution,
             mouse_move_and_click,
             click_ui_element,
+            click_youtube_feed_video,
             mouse_scroll,
             mouse_drag,
             search_chrome,
