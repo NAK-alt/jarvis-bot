@@ -287,6 +287,20 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"• `[{r['date']}]` **{r['speaker']}**: {r['content']}")
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
+async def devices_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /devices command to list all currently connected PCs/laptops."""
+    devices = bridge_manager.get_online_devices()
+    if not devices:
+        await update.message.reply_text("🔴 **No devices currently connected.**\nOnce you run the bridge on your laptop/PC, it will appear here.", parse_mode="Markdown")
+        return
+
+    lines = [f"💻 **Connected Workstations & Laptops ({len(devices)}):**\n"]
+    import datetime
+    for d in devices:
+        conn_time = datetime.datetime.fromtimestamp(d['connected_at']).strftime("%H:%M:%S")
+        lines.append(f"• 🟢 **{d['hostname']}** ({d['os']}) — *Connected at {conn_time}*")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await handle_message_content(update, context, text=update.message.text)
 
@@ -366,6 +380,7 @@ async def main():
     tg_app.add_handler(CommandHandler("forget", forget_command))
     tg_app.add_handler(CommandHandler("history", history_command))
     tg_app.add_handler(CommandHandler("search", search_command))
+    tg_app.add_handler(CommandHandler("devices", devices_command))
 
     tg_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
     tg_app.add_handler(MessageHandler(filters.VOICE, handle_voice))

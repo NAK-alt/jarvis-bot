@@ -3,23 +3,69 @@ import json
 import logging
 import uuid
 import base64
-from typing import Dict, Any, Optional
+import time
+from typing import Dict, Any, Optional, List
 import aiohttp
 from aiohttp import web
 
 logger = logging.getLogger("BridgeManager")
 
+class DeviceSession:
+    def __init__(self, ws: web.WebSocketResponse, hostname: str, os_name: str, ip: str):
+        self.ws = ws
+        self.hostname = hostname
+        self.os_name = os_name
+        self.ip = ip
+        self.connected_at = time.time()
+        self.last_active = time.time()
+
 class BridgeManager:
-    """Manages the real-time WebSocket connection between Railway Cloud and Local Windows PC."""
+    """Manages multi-device real-time WebSocket connections between Railway Cloud and Local PCs/Laptops."""
     def __init__(self, secret_key: str):
         self.secret_key = secret_key
-        self.active_ws: Optional[web.WebSocketResponse] = None
-        self.pc_info: Dict[str, Any] = {}
+        # Dictionary of hostname -> DeviceSession
+        self.devices: Dict[str, DeviceSession] = {}
         self.pending_requests: Dict[str, asyncio.Future] = {}
 
     @property
     def is_connected(self) -> bool:
-        return self.active_ws is not None and not self.active_ws.closed
+        """Returns True if at least one device is currently online."""
+        return any(d.ws is not None and not d.ws.closed for d in self.devices.values())
+
+    @property
+    def primary_device(self) -> Optional[DeviceSession]:
+        """Returns the most recently connected active device."""
+        active = [d for d in self.devices.values() if d.ws and not d.ws.closed]
+        if not active:
+            return None
+        return max(active, key=lambda d: d.last_active)
+
+    @property
+    def pc_info(self) -> Dict[str, Any]:
+        """Returns info of the primary active device for backward compatibility."""
+        p = self.primary_device
+        if p:
+            return {
+                "hostname": p.hostname,
+                "os": p.os_name,
+                "connected_at": p.connected_at,
+                "ip": p.ip,
+                "total_online_devices": len(self.get_online_devices())
+            }
+        return {}
+
+    def get_online_devices(self) -> List[Dict[str, Any]]:
+        """List all currently connected and online devices."""
+        result = []
+        for host, dev in list(self.devices.items()):
+            if dev.ws and not dev.ws.closed:
+                result.append({
+                    "hostname": dev.hostname,
+                    "os": dev.os_name,
+                    "ip": dev.ip,
+                    "connected_at": dev.connected_at
+                })
+        return result
 
     async def handle_ws(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=45.0, max_msg_size=50 * 1024 * 1024)
@@ -27,6 +73,7 @@ class BridgeManager:
 
         authenticated = False
         peer_name = request.remote
+        assigned_hostname = None
 
         logger.info(f"Incoming connection from {peer_name}")
 
@@ -50,24 +97,27 @@ class BridgeManager:
                             break
                         
                         authenticated = True
-                        # If an older socket exists, close it
-                        if self.active_ws and self.active_ws != ws and not self.active_ws.closed:
-                            try:
-                                await self.active_ws.close()
-                            except Exception:
-                                pass
+                        assigned_hostname = data.get("hostname", f"Device-{peer_name}")
+                        os_name = data.get("os", "Windows")
 
-                        self.active_ws = ws
-                        self.pc_info = {
-                            "hostname": data.get("hostname", "Windows PC"),
-                            "os": data.get("os", "Windows"),
-                            "connected_at": data.get("timestamp")
-                        }
-                        logger.info(f"✅ Local PC connected & authenticated: {self.pc_info['hostname']} ({peer_name})")
-                        await ws.send_json({"type": "auth_ok", "message": "Bridge connected successfully."})
+                        # If an older socket exists for the same hostname, close it
+                        if assigned_hostname in self.devices:
+                            old_dev = self.devices[assigned_hostname]
+                            if old_dev.ws and old_dev.ws != ws and not old_dev.ws.closed:
+                                try:
+                                    await old_dev.ws.close()
+                                except Exception:
+                                    pass
+
+                        self.devices[assigned_hostname] = DeviceSession(ws, assigned_hostname, os_name, peer_name)
+                        logger.info(f"✅ Device connected & authenticated: {assigned_hostname} ({peer_name}). Total devices online: {len(self.get_online_devices())}")
+                        await ws.send_json({"type": "auth_ok", "message": f"Bridge connected successfully as '{assigned_hostname}'."})
 
                     # Handle RPC Tool Response from PC
                     elif msg_type == "tool_response":
+                        if assigned_hostname in self.devices:
+                            self.devices[assigned_hostname].last_active = time.time()
+
                         req_id = data.get("id")
                         if req_id and req_id in self.pending_requests:
                             fut = self.pending_requests.pop(req_id)
@@ -76,28 +126,37 @@ class BridgeManager:
 
                     # Handle Ping
                     elif msg_type == "ping":
+                        if assigned_hostname in self.devices:
+                            self.devices[assigned_hostname].last_active = time.time()
                         await ws.send_json({"type": "pong"})
 
                 elif msg.type == aiohttp.WSMsgType.ERROR:
-                    logger.error(f"WebSocket error: {ws.exception()}")
+                    logger.error(f"WebSocket error from {assigned_hostname or peer_name}: {ws.exception()}")
 
         finally:
-            if self.active_ws == ws:
-                self.active_ws = None
-                self.pc_info = {}
-                logger.info("⚠️ Local PC Bridge disconnected. PC is now marked OFFLINE.")
-                # Cancel any pending requests
-                for req_id, fut in list(self.pending_requests.items()):
-                    if not fut.done():
-                        fut.set_exception(ConnectionResetError("PC disconnected while executing task."))
-                self.pending_requests.clear()
+            if assigned_hostname and assigned_hostname in self.devices:
+                if self.devices[assigned_hostname].ws == ws:
+                    del self.devices[assigned_hostname]
+                    logger.info(f"⚠️ Device '{assigned_hostname}' disconnected. Remaining online: {len(self.get_online_devices())}")
+                    
+                    # Cancel pending requests for this device if needed
+                    for req_id, fut in list(self.pending_requests.items()):
+                        if not fut.done():
+                            fut.set_exception(ConnectionResetError(f"Device '{assigned_hostname}' disconnected."))
+                    self.pending_requests.clear()
 
         return ws
 
-    async def execute_tool_on_pc(self, tool_name: str, tool_args: Dict[str, Any], timeout: float = 60.0) -> Dict[str, Any]:
-        """Send a tool execution command over WebSocket to the local PC and await response."""
+    async def execute_tool_on_pc(
+        self,
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        target_device: Optional[str] = None,
+        timeout: float = 60.0
+    ) -> Dict[str, Any]:
+        """Send a tool execution command over WebSocket to a specific or primary connected PC and await response."""
+        # Wait up to 3 seconds in case a reconnect is in progress
         if not self.is_connected:
-            # Give a brief 3-second grace period in case the client is auto-reconnecting
             for _ in range(6):
                 await asyncio.sleep(0.5)
                 if self.is_connected:
@@ -106,7 +165,23 @@ class BridgeManager:
         if not self.is_connected:
             return {
                 "status": "offline",
-                "result": "Notice to Jarvis: The user's Windows PC is currently offline/disconnected. Inform the user politely that their PC is not reachable right now."
+                "result": "Notice to Jarvis: All user workstations/laptops are currently offline or disconnected. Inform the user politely."
+            }
+
+        # Select target device
+        target = None
+        if target_device and target_device in self.devices:
+            dev = self.devices[target_device]
+            if dev.ws and not dev.ws.closed:
+                target = dev
+
+        if not target:
+            target = self.primary_device
+
+        if not target or not target.ws or target.ws.closed:
+            return {
+                "status": "offline",
+                "result": "Notice to Jarvis: The target device is no longer reachable."
             }
 
         req_id = str(uuid.uuid4())
@@ -122,18 +197,19 @@ class BridgeManager:
         }
 
         try:
-            await self.active_ws.send_json(payload)
+            target.last_active = time.time()
+            await target.ws.send_json(payload)
             response = await asyncio.wait_for(fut, timeout=timeout)
             return response
         except asyncio.TimeoutError:
             self.pending_requests.pop(req_id, None)
             return {
                 "status": "error",
-                "result": f"Error: Command '{tool_name}' timed out on the local PC after {timeout} seconds."
+                "result": f"Error: Command '{tool_name}' timed out on device '{target.hostname}' after {timeout} seconds."
             }
         except Exception as e:
             self.pending_requests.pop(req_id, None)
             return {
                 "status": "error",
-                "result": f"Error executing '{tool_name}' via bridge: {str(e)}"
+                "result": f"Error executing '{tool_name}' on '{target.hostname}': {str(e)}"
             }
