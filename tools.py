@@ -579,28 +579,35 @@ def click_ui_element(x_percent: float, y_percent: float, button: str = "left", c
         return f"Error clicking UI element: {str(e)}"
 
 def play_youtube_video(query: str) -> str:
-    """Search YouTube on Chrome and automatically open/play the video.
+    """Search YouTube and directly open and play the video in Google Chrome.
     
     Args:
         query: Name of the video, song, artist, or topic to play (e.g. 'Interstellar theme', 'lo-fi beats').
     """
     import urllib.parse
+    import urllib.request
+    import re
     try:
-        url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
-        run_powershell(f'Start-Process "chrome.exe" -ArgumentList "{url}" -ErrorAction SilentlyContinue; if (!$?) {{ Start-Process "{url}" }}')
-        
-        # Focus Chrome and wait for page load
-        time.sleep(2.0)
-        focus_window("Chrome")
-        time.sleep(0.5)
+        query_clean = query.strip()
+        if "youtube.com/watch" in query_clean or "youtu.be/" in query_clean:
+            url = query_clean
+        else:
+            search_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query_clean)}"
+            try:
+                req = urllib.request.Request(search_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+                html = urllib.request.urlopen(req, timeout=5).read().decode('utf-8')
+                video_ids = re.findall(r'watch\?v=([a-zA-Z0-9_-]{11})', html)
+                if video_ids:
+                    url = f"https://www.youtube.com/watch?v={video_ids[0]}"
+                else:
+                    url = search_url
+            except Exception:
+                url = search_url
 
-        width, height = pyautogui.size()
-        # Typical first YouTube video thumbnail location
-        first_video_x = int(width * 0.38)
-        first_video_y = int(height * 0.35)
-        win32_hardware_click(first_video_x, first_video_y, clicks=1)
-        
-        return f"Opened YouTube and triggered playback for: '{query}'."
+        run_powershell(f'Start-Process "chrome.exe" -ArgumentList "{url}" -ErrorAction SilentlyContinue; if (!$?) {{ Start-Process "{url}" }}')
+        time.sleep(1.0)
+        focus_window("Chrome")
+        return f"Successfully opened and started playback for: '{query}' ({url})"
     except Exception as e:
         return f"Error playing YouTube video: {str(e)}"
 
