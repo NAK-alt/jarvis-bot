@@ -21,9 +21,12 @@ You operate 24/7 in the cloud and are connected to the user's Windows laptop/PC 
 
 Core Capabilities:
 1. Complete Laptop & GUI Control (Computer Use):
-   - You can control the user's laptop like a human: move mouse ('mouse_move_and_click'), drag ('mouse_drag'), scroll ('mouse_scroll'), type text & press enter ('type_and_press_enter'), execute keyboard hotkeys ('press_hotkey_or_type').
-   - You can search Chrome and browse the web ('search_chrome'), manage tabs ('chrome_action'), open applications ('open_application_or_url'), and run PowerShell scripts ('run_powershell').
-   - When asked to click something specific on screen, you can capture a screenshot ('take_screenshot') to inspect the screen resolution and elements with your vision intelligence, and then click with precision coordinates.
+   - When asked to click, open, or select any on-screen button, video, link, or icon (e.g. 'click the first video', 'click play', 'click skip ad', 'click the submit button'):
+     -> Immediately invoke 'inspect_screen_and_click' with the description of the element. It automatically takes a screenshot, finds the exact element with AI vision, and clicks it!
+   - When asked to play YouTube music or videos:
+     -> Immediately invoke 'play_youtube_video' (or 'search_chrome' followed by 'inspect_screen_and_click').
+   - You can also move mouse ('mouse_move_and_click'), scroll ('mouse_scroll'), drag ('mouse_drag'), type & press enter ('type_and_press_enter'), and press keys ('press_key', 'press_hotkey_or_type').
+   - When asked what's on screen: Call 'inspect_screen_content'.
 2. Long-Term Memory: You possess persistent lifelong memory across sessions, server restarts, and conversations. You remember the user's preferences, background, past discussions, instructions, and projects.
 3. Offline Awareness: If a local tool indicates that the user's PC is currently offline/disconnected, politely inform the user that their workstation is currently offline.
 4. Intelligent Cloud Reasoning: Handle analysis, coding, math, general questions, web searches, and vision tasks directly in the cloud 24/7.
@@ -86,6 +89,86 @@ class CloudJarvisAgent:
             for r in results:
                 lines.append(f"• [{r['date']}] {r['speaker']}: {r['content']}")
             return "\n".join(lines)
+
+        # --- Autonomous AI Vision & Screen Grounding Tools ---
+        def inspect_screen_and_click(target_description: str, double_click: bool = False) -> str:
+            """Capture a live screenshot, use AI vision intelligence to find the exact element/button on screen, and click it accurately.
+            
+            Args:
+                target_description: Description of what to click (e.g. 'the first video thumbnail', 'the skip ad button', 'search icon', 'play button', 'blue submit button', 'login').
+                double_click: True to double-click, False for single-click.
+            """
+            import json
+            # 1. Capture screen
+            res = self._call_bridge_sync("take_screenshot", {})
+            if not res.get("screenshot_base64"):
+                return "Failed to capture screen for visual inspection."
+
+            img_bytes = base64.b64decode(res["screenshot_base64"])
+            self.last_screenshot_bytes = img_bytes
+
+            # 2. Query Gemini Vision to locate the element coordinates
+            try:
+                vision_prompt = (
+                    f"Look at this screenshot of the user's computer screen.\n"
+                    f"Locate the center coordinate of the following UI element: '{target_description}'.\n"
+                    f"Return ONLY valid JSON with this exact schema:\n"
+                    f'{{"found": true, "x_percent": 35.5, "y_percent": 42.0, "description": "brief description of what was located"}}\n'
+                    f"x_percent must be a float between 0.0 (far left) and 100.0 (far right).\n"
+                    f"y_percent must be a float between 0.0 (top) and 100.0 (bottom).\n"
+                    f"If the element cannot be found on screen, return: {{\"found\": false, \"reason\": \"brief reason\"}}"
+                )
+                vision_resp = self.client.models.generate_content(
+                    model="gemini-3.1-flash-lite",
+                    contents=[
+                        types.Part.from_bytes(data=img_bytes, mime_type="image/png"),
+                        vision_prompt
+                    ],
+                    config=types.GenerateContentConfig(temperature=0.1)
+                )
+
+                raw_text = vision_resp.text.strip()
+                if "```json" in raw_text:
+                    raw_text = raw_text.split("```json")[1].split("```")[0].strip()
+                elif "```" in raw_text:
+                    raw_text = raw_text.split("```")[1].split("```")[0].strip()
+
+                parsed = json.loads(raw_text)
+                if parsed.get("found"):
+                    x_pct = float(parsed["x_percent"])
+                    y_pct = float(parsed["y_percent"])
+                    clicks = 2 if double_click else 1
+                    click_res = self._call_bridge_sync("click_ui_element", {
+                        "x_percent": x_pct,
+                        "y_percent": y_pct,
+                        "button": "left",
+                        "clicks": clicks
+                    })
+                    return f"Found '{target_description}' at ({x_pct:.1f}%, {y_pct:.1f}%) and clicked it successfully: {click_res.get('result', '')}"
+                else:
+                    return f"Could not find '{target_description}' on the screen. Reason: {parsed.get('reason', 'Element not visible')}."
+            except Exception as e:
+                logger.error(f"Error in inspect_screen_and_click: {e}")
+                return f"Vision inspection error: {str(e)}"
+
+        def inspect_screen_content(question: str = "What is currently visible on my screen?") -> str:
+            """Take a screenshot and use AI Vision to inspect and describe everything currently visible on the screen."""
+            res = self._call_bridge_sync("take_screenshot", {})
+            if not res.get("screenshot_base64"):
+                return "Could not capture screen."
+            img_bytes = base64.b64decode(res["screenshot_base64"])
+            self.last_screenshot_bytes = img_bytes
+            try:
+                vision_resp = self.client.models.generate_content(
+                    model="gemini-3.1-flash-lite",
+                    contents=[
+                        types.Part.from_bytes(data=img_bytes, mime_type="image/png"),
+                        question
+                    ]
+                )
+                return vision_resp.text or "Unable to analyze screen content."
+            except Exception as e:
+                return f"Error analyzing screen: {str(e)}"
 
         # --- GUI Mouse, Chrome & Laptop Control Tools ---
         def get_screen_resolution() -> str:
@@ -249,6 +332,8 @@ class CloudJarvisAgent:
             recall_memory,
             forget_fact,
             search_past_conversations,
+            inspect_screen_and_click,
+            inspect_screen_content,
             get_screen_resolution,
             mouse_move_and_click,
             click_ui_element,
