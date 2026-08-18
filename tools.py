@@ -578,17 +578,20 @@ def click_ui_element(x_percent: float, y_percent: float, button: str = "left", c
     except Exception as e:
         return f"Error clicking UI element: {str(e)}"
 
-def play_youtube_video(query: str) -> str:
-    """Search YouTube and directly open and play the video in Google Chrome.
+def play_youtube_video(query: str, video_index: int = 1) -> str:
+    """Search YouTube and directly open and play the 1st, 2nd, 3rd, etc. video in Google Chrome.
     
     Args:
         query: Name of the video, song, artist, or topic to play (e.g. 'Interstellar theme', 'lo-fi beats').
+        video_index: Which video result to play (1 for 1st video, 2 for 2nd video, 3 for 3rd video, etc. Default is 1).
     """
     import urllib.parse
     import urllib.request
     import re
     try:
         query_clean = query.strip()
+        idx = max(1, int(video_index)) - 1  # 0-indexed
+        
         if "youtube.com/watch" in query_clean or "youtu.be/" in query_clean:
             url = query_clean
         else:
@@ -596,9 +599,12 @@ def play_youtube_video(query: str) -> str:
             try:
                 req = urllib.request.Request(search_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
                 html = urllib.request.urlopen(req, timeout=5).read().decode('utf-8')
-                video_ids = re.findall(r'watch\?v=([a-zA-Z0-9_-]{11})', html)
-                if video_ids:
-                    url = f"https://www.youtube.com/watch?v={video_ids[0]}"
+                raw_ids = re.findall(r'watch\?v=([a-zA-Z0-9_-]{11})', html)
+                # Keep unique in order
+                unique_ids = list(dict.fromkeys(raw_ids))
+                if unique_ids:
+                    chosen_id = unique_ids[min(idx, len(unique_ids) - 1)]
+                    url = f"https://www.youtube.com/watch?v={chosen_id}"
                 else:
                     url = search_url
             except Exception:
@@ -607,7 +613,7 @@ def play_youtube_video(query: str) -> str:
         run_powershell(f'Start-Process "chrome.exe" -ArgumentList "{url}" -ErrorAction SilentlyContinue; if (!$?) {{ Start-Process "{url}" }}')
         time.sleep(1.0)
         focus_window("Chrome")
-        return f"Successfully opened and started playback for: '{query}' ({url})"
+        return f"Successfully opened and started playback for video #{video_index}: '{query}' ({url})"
     except Exception as e:
         return f"Error playing YouTube video: {str(e)}"
 

@@ -317,9 +317,9 @@ class CloudJarvisAgent:
             res = self._call_bridge_sync("click_ui_element", {"x_percent": x_percent, "y_percent": y_percent, "button": button, "clicks": clicks})
             return res.get("result", "UI click executed.")
 
-        def play_youtube_video(query: str) -> str:
-            """Search YouTube on Chrome and automatically open & trigger video playback."""
-            res = self._call_bridge_sync("play_youtube_video", {"query": query})
+        def play_youtube_video(query: str, video_index: int = 1) -> str:
+            """Search YouTube on Chrome and automatically open & play the 1st, 2nd, 3rd, etc. video."""
+            res = self._call_bridge_sync("play_youtube_video", {"query": query, "video_index": video_index})
             return res.get("result", "YouTube playback started.")
 
         def press_key(key_name: str) -> str:
