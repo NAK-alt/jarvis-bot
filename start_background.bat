@@ -13,10 +13,8 @@ if not exist ".env" (
     exit /b
 )
 
-:: Launch pythonw in background (no console window)
-start "" pyw -3.12 pc_bridge.py
+:: Launch via WMI persistent PowerShell script
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_persistent.ps1"
 
-echo ✅ J.A.R.V.I.S. PC Bridge is now running in the background!
-echo Your PC is linked to the 24/7 Railway bot.
 echo.
 timeout /t 3
