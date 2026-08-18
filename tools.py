@@ -362,6 +362,51 @@ def get_screen_resolution() -> str:
     except Exception as e:
         return f"Error getting screen size: {str(e)}"
 
+MOUSEEVENTF_MOVE = 0x0001
+MOUSEEVENTF_LEFTDOWN = 0x0002
+MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_RIGHTDOWN = 0x0008
+MOUSEEVENTF_RIGHTUP = 0x0010
+MOUSEEVENTF_MIDDLEDOWN = 0x0020
+MOUSEEVENTF_MIDDLEUP = 0x0040
+MOUSEEVENTF_ABSOLUTE = 0x8000
+
+def win32_hardware_click(pixel_x: int, pixel_y: int, button: str = "left", clicks: int = 1):
+    """Execute direct Windows kernel hardware mouse click via mouse_event MOUSEEVENTF_ABSOLUTE."""
+    try:
+        import ctypes
+        ctypes.windll.user32.SetProcessDPIAware()
+        width, height = pyautogui.size()
+        norm_x = int(pixel_x * 65535 / max(width - 1, 1))
+        norm_y = int(pixel_y * 65535 / max(height - 1, 1))
+        
+        # 1. Move cursor
+        ctypes.windll.user32.mouse_event(MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE, norm_x, norm_y, 0, 0)
+        time.sleep(0.04)
+        
+        # 2. Determine button flags
+        btn = button.lower()
+        if btn == "right":
+            down_flag = MOUSEEVENTF_RIGHTDOWN
+            up_flag = MOUSEEVENTF_RIGHTUP
+        elif btn == "middle":
+            down_flag = MOUSEEVENTF_MIDDLEDOWN
+            up_flag = MOUSEEVENTF_MIDDLEUP
+        else:
+            down_flag = MOUSEEVENTF_LEFTDOWN
+            up_flag = MOUSEEVENTF_LEFTUP
+            
+        # 3. Perform clicks
+        for _ in range(clicks):
+            ctypes.windll.user32.mouse_event(MOUSEEVENTF_ABSOLUTE | down_flag, norm_x, norm_y, 0, 0)
+            time.sleep(0.04)
+            ctypes.windll.user32.mouse_event(MOUSEEVENTF_ABSOLUTE | up_flag, norm_x, norm_y, 0, 0)
+            if clicks > 1:
+                time.sleep(0.08)
+    except Exception:
+        # Fallback to PyAutoGUI
+        pyautogui.click(pixel_x, pixel_y, clicks=clicks, button=button.lower())
+
 def mouse_move_and_click(x: int, y: int, button: str = "left", clicks: int = 1) -> str:
     """Move the mouse cursor to specific screen coordinates (x, y) and perform a click.
     
@@ -376,9 +421,7 @@ def mouse_move_and_click(x: int, y: int, button: str = "left", clicks: int = 1) 
         target_x = max(0, min(x, width - 1))
         target_y = max(0, min(y, height - 1))
         
-        # Smoothly move to coordinates
-        pyautogui.moveTo(target_x, target_y, duration=0.25)
-        pyautogui.click(target_x, target_y, clicks=clicks, button=button.lower())
+        win32_hardware_click(target_x, target_y, button=button, clicks=clicks)
         return f"Mouse moved to ({target_x}, {target_y}) and performed {clicks} {button}-click(s)."
     except Exception as e:
         return f"Error executing mouse click: {str(e)}"
@@ -530,8 +573,7 @@ def click_ui_element(x_percent: float, y_percent: float, button: str = "left", c
         pixel_x = int((max(0.0, min(100.0, float(x_percent))) / 100.0) * width)
         pixel_y = int((max(0.0, min(100.0, float(y_percent))) / 100.0) * height)
         
-        pyautogui.moveTo(pixel_x, pixel_y, duration=0.25)
-        pyautogui.click(pixel_x, pixel_y, clicks=clicks, button=button.lower())
+        win32_hardware_click(pixel_x, pixel_y, button=button, clicks=clicks)
         return f"Clicked at screen coordinate ({pixel_x}, {pixel_y}) [{x_percent:.1f}%, {y_percent:.1f}%]."
     except Exception as e:
         return f"Error clicking UI element: {str(e)}"
@@ -547,13 +589,16 @@ def play_youtube_video(query: str) -> str:
         url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
         run_powershell(f'Start-Process "chrome.exe" -ArgumentList "{url}" -ErrorAction SilentlyContinue; if (!$?) {{ Start-Process "{url}" }}')
         
-        # Brief pause for page load, then click the first search result thumbnail area
-        time.sleep(1.8)
+        # Focus Chrome and wait for page load
+        time.sleep(2.0)
+        focus_window("Chrome")
+        time.sleep(0.5)
+
         width, height = pyautogui.size()
-        # Typical first YouTube video thumbnail location in standard 1080p/1440p/1600p Chrome layout
+        # Typical first YouTube video thumbnail location
         first_video_x = int(width * 0.38)
         first_video_y = int(height * 0.35)
-        pyautogui.click(first_video_x, first_video_y)
+        win32_hardware_click(first_video_x, first_video_y, clicks=1)
         
         return f"Opened YouTube and triggered playback for: '{query}'."
     except Exception as e:
