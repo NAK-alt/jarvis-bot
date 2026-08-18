@@ -516,16 +516,74 @@ def press_hotkey_or_type(text: str = "", hotkey: str = "") -> str:
     except Exception as e:
         return f"Error with keyboard action: {str(e)}"
 
+def click_ui_element(x_percent: float, y_percent: float, button: str = "left", clicks: int = 1) -> str:
+    """Click a visual UI element on screen using percentage coordinates (0.0 to 100.0) from a screenshot.
+    
+    Args:
+        x_percent: Horizontal percentage across the screen (0.0 = far left, 50.0 = middle, 100.0 = far right).
+        y_percent: Vertical percentage down the screen (0.0 = top, 50.0 = middle, 100.0 = bottom).
+        button: 'left', 'right', or 'middle' (default 'left').
+        clicks: Number of clicks (1 for single click, 2 for double click).
+    """
+    try:
+        width, height = pyautogui.size()
+        pixel_x = int((max(0.0, min(100.0, float(x_percent))) / 100.0) * width)
+        pixel_y = int((max(0.0, min(100.0, float(y_percent))) / 100.0) * height)
+        
+        pyautogui.moveTo(pixel_x, pixel_y, duration=0.25)
+        pyautogui.click(pixel_x, pixel_y, clicks=clicks, button=button.lower())
+        return f"Clicked at screen coordinate ({pixel_x}, {pixel_y}) [{x_percent:.1f}%, {y_percent:.1f}%]."
+    except Exception as e:
+        return f"Error clicking UI element: {str(e)}"
+
+def play_youtube_video(query: str) -> str:
+    """Search YouTube on Chrome and automatically open/play the video.
+    
+    Args:
+        query: Name of the video, song, artist, or topic to play (e.g. 'Interstellar theme', 'lo-fi beats').
+    """
+    import urllib.parse
+    try:
+        url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
+        run_powershell(f'Start-Process "chrome.exe" -ArgumentList "{url}" -ErrorAction SilentlyContinue; if (!$?) {{ Start-Process "{url}" }}')
+        
+        # Brief pause for page load, then click the first search result thumbnail area
+        time.sleep(1.8)
+        width, height = pyautogui.size()
+        # Typical first YouTube video thumbnail location in standard 1080p/1440p/1600p Chrome layout
+        first_video_x = int(width * 0.38)
+        first_video_y = int(height * 0.35)
+        pyautogui.click(first_video_x, first_video_y)
+        
+        return f"Opened YouTube and triggered playback for: '{query}'."
+    except Exception as e:
+        return f"Error playing YouTube video: {str(e)}"
+
+def press_key(key_name: str) -> str:
+    """Press a single keyboard key (e.g. 'enter', 'space', 'esc', 'tab', 'k', 'f', 'm', 'up', 'down').
+    
+    Args:
+        key_name: Name of key to press.
+    """
+    try:
+        pyautogui.press(key_name.lower().strip())
+        return f"Pressed '{key_name}'."
+    except Exception as e:
+        return f"Error pressing key '{key_name}': {str(e)}"
+
 AVAILABLE_TOOLS = [
     run_powershell,
     take_screenshot,
     get_screen_resolution,
     mouse_move_and_click,
+    click_ui_element,
     mouse_scroll,
     mouse_drag,
     search_chrome,
+    play_youtube_video,
     chrome_action,
     type_and_press_enter,
+    press_key,
     open_application_or_url,
     control_volume,
     control_media,

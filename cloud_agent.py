@@ -229,6 +229,21 @@ class CloudJarvisAgent:
                 return f"🟢 PC is ONLINE (Host: {info.get('hostname', 'Windows PC')}, OS: {info.get('os', 'Windows')})."
             return "🔴 PC is currently OFFLINE / disconnected."
 
+        def click_ui_element(x_percent: float, y_percent: float, button: str = "left", clicks: int = 1) -> str:
+            """Click a visual UI element on screen using percentage coordinates (0.0 to 100.0) from a screenshot."""
+            res = self._call_bridge_sync("click_ui_element", {"x_percent": x_percent, "y_percent": y_percent, "button": button, "clicks": clicks})
+            return res.get("result", "UI click executed.")
+
+        def play_youtube_video(query: str) -> str:
+            """Search YouTube on Chrome and automatically open & trigger video playback."""
+            res = self._call_bridge_sync("play_youtube_video", {"query": query})
+            return res.get("result", "YouTube playback started.")
+
+        def press_key(key_name: str) -> str:
+            """Press a single key (e.g. 'enter', 'space', 'esc', 'tab', 'k', 'f', 'm')."""
+            res = self._call_bridge_sync("press_key", {"key_name": key_name})
+            return res.get("result", f"Pressed '{key_name}'.")
+
         return [
             remember_fact,
             recall_memory,
@@ -236,11 +251,14 @@ class CloudJarvisAgent:
             search_past_conversations,
             get_screen_resolution,
             mouse_move_and_click,
+            click_ui_element,
             mouse_scroll,
             mouse_drag,
             search_chrome,
+            play_youtube_video,
             chrome_action,
             type_and_press_enter,
+            press_key,
             run_powershell,
             take_screenshot,
             open_application_or_url,
