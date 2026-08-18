@@ -18,7 +18,7 @@ if ALLOWED_USER_IDS_RAW:
 
 # Voice Settings (Microsoft Edge-TTS)
 VOICE_NAME = os.getenv("VOICE_NAME", "en-GB-RyanNeural")
-VOICE_REPLY_ENABLED = os.getenv("VOICE_REPLY_ENABLED", "true").lower() in ("true", "1", "yes")
+VOICE_REPLY_ENABLED = os.getenv("VOICE_REPLY_ENABLED", "false").lower() in ("true", "1", "yes")
 
 # Gemini Models with fallbacks (Speed-optimized)
 PRIMARY_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
